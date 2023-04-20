@@ -1,13 +1,13 @@
 import subprocess
 import tempfile
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
-from langchain.chat_models.openai import ChatOpenAI
+from langchain.chat_models import AzureChatOpenAI
 from langchain.schema import HumanMessage, AIMessage
-from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.embeddings import OpenAIEmbeddings
 from langchain.text_splitter import MarkdownTextSplitter
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.text_splitter import TokenTextSplitter
-from langchain.utilities import GoogleSearchAPIWrapper
+from langchain.utilities import BingSearchAPIWrapper
 from langchain.callbacks import get_openai_callback
 from langchain.callbacks.base import CallbackManager
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
@@ -58,7 +58,7 @@ def vector_similarity(x: list[float], y: list[float]) -> float:
 
 
 def top_k_similar_docs(query: str, docs: list[str], k: int = 5) -> list[str]:
-    embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
+    embeddings = OpenAIEmbeddings(model="embedding")
     query_embedding = embeddings.embed_query(query)
     doc_embeddings = embeddings.embed_documents(docs)
     similarities = [vector_similarity(
@@ -69,14 +69,14 @@ def top_k_similar_docs(query: str, docs: list[str], k: int = 5) -> list[str]:
 
 def run_with_timeout(cmd, timeout_sec):
     with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as proc:
-        try:
-            outs, errs = proc.communicate(timeout=timeout_sec)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            outs, errs = proc.communicate()
-            raise TimeoutError(
-                f"Process took too long (>{timeout_sec} seconds)")
-
+        # try:
+        print('run python')
+        outs, errs = proc.communicate(timeout=timeout_sec)
+        # except subprocess.TimeoutExpired:
+        #     proc.kill()
+        #     outs, errs = proc.communicate()
+        #     raise TimeoutError(
+        #         f"Process took too long (>{timeout_sec} seconds)")
     if errs:
         return errs.decode('utf-8')
     else:
@@ -92,7 +92,7 @@ links = []
 def search(queries: str) -> str:
     summary = ''
     for query in json.loads(queries):
-        results = GoogleSearchAPIWrapper().results(query, 5)
+        results = BingSearchAPIWrapper().results(query, 5)
         for result in results:
             i = len(links)
             summary += f'[{i}] {result["title"]}\n{result.get("snippet", "")}\n'
@@ -119,15 +119,15 @@ def summarize(snippet_ids: str) -> str:
 def python(code: str) -> str:
     pattern = r'(?<=("""))(.|\n)*?(?=\1)'
     match = re.search(pattern, code).group(0)
-    try:
-        with tempfile.NamedTemporaryFile() as tmp:
-            tmp.write(match.encode())
-            tmp.flush()
-            return run_with_timeout(['python', tmp.name], timeout_sec=5)
-    except Exception as e:
-        logging.error(e)
-        print(e)
-        return str(e) + "\ntry again and optimize the code"
+    # try:
+    with tempfile.NamedTemporaryFile() as tmp:
+        tmp.write(match.encode())
+        tmp.flush()
+        return run_with_timeout(['python', tmp.name], timeout_sec=5)
+    # except Exception as e:
+    #     logging.error(e)
+    #     print(e)
+    #     return str(e) + "\ntry again and optimize the code"
 
 
 tools = [
@@ -167,10 +167,27 @@ def messages_tokens() -> int:
 
 def call_llm(streaming: bool = False) -> str:
     if streaming:
-        chat = ChatOpenAI(model_name="gpt-4", streaming=True, callback_manager=CallbackManager(
-            [StreamingStdOutCallbackHandler()]), verbose=True, temperature=0)
+        #chat = ChatOpenAI(model_name="gpt-4", streaming=True, callback_manager=CallbackManager(
+#            [StreamingStdOutCallbackHandler()]), verbose=True, temperature=0)
+        chat = AzureChatOpenAI(
+            openai_api_base=OPENAI_API_BASE,
+            openai_api_version="2023-03-15-preview",
+            deployment_name=GPT4_DEPLOYMENT,
+            openai_api_key=OPENAI_API_KEY,
+            openai_api_type = "azure",
+            streaming=True, callback_manager=CallbackManager(
+                [StreamingStdOutCallbackHandler()]),
+            verbose=True, temperature=0)
     else:
-        chat = ChatOpenAI(model_name="gpt-4", verbose=True, temperature=0)
+        #chat = ChatOpenAI(model_name="gpt-4", verbose=True, temperature=0)
+        chat = AzureChatOpenAI(
+                    openai_api_base=OPENAI_API_BASE,
+                    openai_api_version="2023-03-15-preview",
+                    deployment_name=GPT4_DEPLOYMENT,
+                    openai_api_key=OPENAI_API_KEY,
+                    openai_api_type = "azure"
+                )
+
     logging.info(f"gpt-context: {messages}")
     resp = chat.generate([(map(lambda msg: msg[1], messages))]).generations[0][0].text
     logging.info(f"gpt-response: {resp}")
@@ -181,10 +198,10 @@ def call_llm(streaming: bool = False) -> str:
         f"cost: ${total_cost}, prompt_tokens: {prompt_tokens}, complete_tokens: {complete_tokens}")
     print('')
     return resp
-    
+
 
 # Prompts
-    
+
 
 def instruction_prompt(query: str, tools: list[dict], context: Optional[str] = None) -> str:
     prompt = "You are an helpful and kind assistant to answer questions that can use tools to interact with real world and get access to the latest information. You can call one of the following functions:\n"
@@ -282,8 +299,8 @@ if __name__ == "__main__":
     while True:
         user_input = input("> ")
         logging.info(f"user-input: {user_input}")
-        try:
-            run(user_input)
-            show_references()
-        except Exception as e:
-            print("Error:", e)
+        # try:
+        run(user_input)
+        show_references()
+        # except Exception as e:
+        #     print("Error:", e)
