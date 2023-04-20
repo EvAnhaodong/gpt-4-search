@@ -22,9 +22,8 @@ import logging
 import ssl
 import readline
 from typing import Optional
-
+import os
 load_dotenv()
-
 
 # Utils
 
@@ -170,10 +169,10 @@ def call_llm(streaming: bool = False) -> str:
         #chat = ChatOpenAI(model_name="gpt-4", streaming=True, callback_manager=CallbackManager(
 #            [StreamingStdOutCallbackHandler()]), verbose=True, temperature=0)
         chat = AzureChatOpenAI(
-            openai_api_base=OPENAI_API_BASE,
+            openai_api_base=os.environ['OPENAI_API_BASE'],
             openai_api_version="2023-03-15-preview",
-            deployment_name=GPT4_DEPLOYMENT,
-            openai_api_key=OPENAI_API_KEY,
+            deployment_name=os.environ['GPT4_DEPLOYMENT'],
+            openai_api_key=os.environ['OPENAI_API_KEY'],
             openai_api_type = "azure",
             streaming=True, callback_manager=CallbackManager(
                 [StreamingStdOutCallbackHandler()]),
@@ -181,10 +180,10 @@ def call_llm(streaming: bool = False) -> str:
     else:
         #chat = ChatOpenAI(model_name="gpt-4", verbose=True, temperature=0)
         chat = AzureChatOpenAI(
-                    openai_api_base=OPENAI_API_BASE,
+                    openai_api_base=os.environ['OPENAI_API_BASE'],
                     openai_api_version="2023-03-15-preview",
-                    deployment_name=GPT4_DEPLOYMENT,
-                    openai_api_key=OPENAI_API_KEY,
+                    deployment_name=os.environ['GPT4_DEPLOYMENT'],
+                    openai_api_key=os.environ['OPENAI_API_KEY'],
                     openai_api_type = "azure"
                 )
 
