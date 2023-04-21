@@ -17,12 +17,16 @@ import numpy as np
 import tiktoken
 import json
 import requests
+import web_playwright
 import re
 import logging
 import ssl
 import readline
 from typing import Optional
 import os
+from text2vec import SentenceModel, EncoderType
+import heapq
+
 load_dotenv()
 
 # Utils
@@ -89,35 +93,52 @@ links = []
 
 
 def search(queries: str) -> str:
-    summary = ''
+    global model
+    # summary = ''
     for query in json.loads(queries):
+        query_embeddings = model.encode(query)
         results = BingSearchAPIWrapper().results(query, 5)
         for result in results:
             i = len(links)
-            summary += f'[{i}] {result["title"]}\n{result.get("snippet", "")}\n'
-            links.append({"link": result["link"], "query": query})
-    logging.info(links)
-    return summary
+            # summary += f'[{i}] {result["title"]}\n{result.get("snippet", "")}>\n'
+            links.append({"link": result["link"], "query": query_embeddings})
+    heap=[]
+    for link_dict in links:
+        chunk_list = web_playwright.scrape_text(link_dict["link"])
+        logging.info("=====================================".join([i[0:800] for i in chunk_list]))
+        print(f"搜到{len(chunk_list)}")
+        for chunk in chunk_list:
+            sentence_embeddings = model.encode(chunk)
+            sim = np.dot(link_dict['query'], sentence_embeddings) / (np.linalg.norm(link_dict['query']) * np.linalg.norm(sentence_embeddings))
+            if len(heap) < 10:
+                heapq.heappush(heap, (sim, chunk))
+            elif sim > heap[0][0]:
+                heapq.heappop(heap)
+                heapq.heappush(heap, (sim, chunk))
+    result = [f"-{i}" for _, i in sorted(heap, reverse=True)]
+    return "\n".join(result)
 
 
 def summarize(snippet_ids: str) -> str:
     summary = ''
     for id in json.loads(snippet_ids):
         try:
-            docs = request(links[id]["link"])
-            top_k = top_k_similar_docs(links[id]["query"], docs, 2)
-            summary += f'[{id}]\n'
-            summary += '\n'.join(top_k)
-            summary += '\n'
+            #docs = request(links[id]["link"])
+            docs = web_playwright.scrape_text(links[id]["link"])
+            logging.info(f"{links[id]['link']}:{docs}")
+            #top_k = top_k_similar_docs(links[id]["query"], docs, 2)
+            #summary += f'[{id}]\n'
+            #ummary += '\n'.join(top_k)
+            #summary += '\n'
         except Exception as e:
             logging.error(e)
             continue
-    return summary
+    return docs
 
 
 def python(code: str) -> str:
     pattern = r'(?<=("""))(.|\n)*?(?=\1)'
-    match = re.search(pattern, code).group(0)
+    match = re.search(pattern, code)[0]
     # try:
     with tempfile.NamedTemporaryFile() as tmp:
         tmp.write(match.encode())
@@ -132,8 +153,8 @@ def python(code: str) -> str:
 tools = [
     {"name": "SEARCH", "args": "(queries: string[])",
      "description": "searches the web, and returns the top snippets, it'll be better if the query string is in english", "run": search},
-    {"name": "SUMMARIZE", "args": "(snippet_ids: uint[])",
-     "description": "click into the search result, useful when you want to investigate the detail of the search result", "run": summarize},
+    # {"name": "SUMMARIZE", "args": "(snippet_ids: uint[])",
+    #  "description": "click into the search result, useful when you want to investigate the detail of the search result", "run": summarize},
     {"name": "PYTHON", "args": "(code: string)",
      "description": "evaluates the code in a python interpreter, wrap code in triple quotes, wrap the answer in `print()`", "run": python},
 ]
@@ -276,7 +297,7 @@ def run(query: str) -> str:
                     result = tool["run"](func_args)
                     result = f"```result\n{result}\n```"
                     logging.info(f"tool-result: {result}")
-                    add_message(AIMessage(content=result), is_tool_result=True)
+                    add_message(HumanMessage(content=result), is_tool_result=True)
                     break
             else:
                 logging.info("no function call, so it is the answer")
@@ -295,6 +316,7 @@ if __name__ == "__main__":
             # logging.StreamHandler()
         ]
     )
+    model = SentenceModel("shibing624/text2vec-base-chinese", encoder_type=EncoderType.FIRST_LAST_AVG)
     while True:
         user_input = input("> ")
         logging.info(f"user-input: {user_input}")
